@@ -35,11 +35,10 @@ TEMPREL2ID = {
 
 BIDIRECTIONAL_REL = ["SIMULTANEOUS", "BEGINS-ON"]
 
-ID2TEMPREL = {v:k for k, v in TEMPREL2ID.items()}
-ID2CAUSALREL = {v:k for k, v in CAUSALREL2ID.items()}
-ID2COREFREL = {v:k for k, v in COREFREL2ID.items()}
-ID2SUBEVENTREL = {v:k for k, v in SUBEVENTREL2ID.items()}
-
+ID2TEMPREL = {v: k for k, v in TEMPREL2ID.items()}
+ID2CAUSALREL = {v: k for k, v in CAUSALREL2ID.items()}
+ID2COREFREL = {v: k for k, v in COREFREL2ID.items()}
+ID2SUBEVENTREL = {v: k for k, v in SUBEVENTREL2ID.items()}
 
 
 def valid_split(point, spans):
@@ -48,6 +47,7 @@ def valid_split(point, spans):
         if point > sp[0] - 3 and point <= sp[1] + 3:
             return False
     return True
+
 
 def split_spans(point, spans):
     part1 = []
@@ -66,12 +66,13 @@ def split_spans(point, spans):
 def type_tokens(type_str):
     return [f"<{type_str}>", f"<{type_str}/>"]
 
+
 class Document:
     def __init__(self, data, ignore_nonetype=False):
         self.id = data["id"]
         self.words = data["tokens"]
         self.mentions = []
-        self.events = [] # first mention + timex
+        self.events = []  # first mention + timex
         self.eid2mentions = {}
         if "events" in data:
             for e in data["events"]:
@@ -109,16 +110,16 @@ class Document:
                 for mention2 in event["mention"]:
                     relations[(mention1["id"], mention2["id"])] = COREFREL2ID["coref"]
         return relations
-    
+
     def sort_events(self):
         self.events = sorted(self.events, key=lambda x: (x["sent_id"], x["offset"][0]))
         self.sorted_event_spans = [(event["sent_id"], event["offset"]) for event in self.events]
-    
+
     def get_coref_labels(self, data):
         label_group = []
         events_only = [e for e in self.events if not e["id"].startswith("TIME")]
         self.events_idx = [i for i, e in enumerate(self.events) if not e["id"].startswith("TIME")]
-        mid2index = {e["id"]:i for i, e in enumerate(events_only)}
+        mid2index = {e["id"]: i for i, e in enumerate(events_only)}
         if "events" in data:
             for event in data["events"]:
                 label_group.append([mid2index[m["id"]] for m in event["mention"]])
@@ -126,7 +127,7 @@ class Document:
             for m in data['event_mentions']:
                 label_group.append([mid2index[m["id"]]])
         return label_group
- 
+
     def get_relation_labels(self, relations, REL2ID, ignore_timex=True):
         pair2rel = {}
         for rel in relations:
@@ -150,7 +151,6 @@ class Document:
         return labels
 
 
-
 class myDataset(Dataset):
     def __init__(self, tokenizer, data_dir, split, max_length=512, ignore_nonetype=False, sample_rate=None):
         if sample_rate and split != "train":
@@ -163,20 +163,20 @@ class myDataset(Dataset):
             self.examples = list(random.sample(self.examples, int(sample_rate * len(self.examples))))
         self.tokenize()
         self.to_tensor()
-    
+
     def load_examples(self, data_dir, split):
         self.examples = []
-        with open(os.path.join(data_dir, f"{split}.jsonl"))as f:
+        with open(os.path.join(data_dir, f"{split}.jsonl")) as f:
             lines = f.readlines()
         for line in lines:
             data = json.loads(line.strip())
             doc = Document(data, ignore_nonetype=self.ignore_nonetype)
             if doc.sorted_event_spans:
                 self.examples.append(doc)
-    
+
     def tokenize(self):
         # {input_ids, event_spans, event_group}
-        # TODO: split articless into part of max_length
+        # TODO: split articles into part of max_length
         self.tokenized_samples = []
         for example in tqdm(self.examples, desc="tokenizing"):
             event_spans = []
@@ -194,9 +194,13 @@ class myDataset(Dataset):
                 while event_id < len(spans) and spans[event_id][0] == sent_id:
                     sp = spans[event_id]
                     if i < sp[1][0]:
-                        context_ids = self.tokenizer(word[i:sp[1][0]], is_split_into_words=True, add_special_tokens=False)["input_ids"]
+                        context_ids = \
+                        self.tokenizer(word[i:sp[1][0]], is_split_into_words=True, add_special_tokens=False)[
+                            "input_ids"]
                         tmp_input_ids += context_ids
-                    event_ids = self.tokenizer(word[sp[1][0]:sp[1][1]], is_split_into_words=True, add_special_tokens=False)["input_ids"]
+                    event_ids = \
+                    self.tokenizer(word[sp[1][0]:sp[1][1]], is_split_into_words=True, add_special_tokens=False)[
+                        "input_ids"]
                     start = len(tmp_input_ids)
                     end = len(tmp_input_ids) + len(event_ids)
                     tmp_event_spans.append((start, end))
@@ -204,13 +208,15 @@ class myDataset(Dataset):
                     i = sp[1][1]
                     event_id += 1
                 if word[i:]:
-                    tmp_input_ids += self.tokenizer(word[i:], is_split_into_words=True, add_special_tokens=False)["input_ids"]
-                
+                    tmp_input_ids += self.tokenizer(word[i:], is_split_into_words=True, add_special_tokens=False)[
+                        "input_ids"]
+
                 # add SEP between sentences
                 tmp_input_ids.append(self.tokenizer.sep_token_id)
 
                 if len(sub_input_ids) + len(tmp_input_ids) <= self.max_length:
-                    sub_event_spans += [(sp[0]+len(sub_input_ids), sp[1]+len(sub_input_ids)) for sp in tmp_event_spans]
+                    sub_event_spans += [(sp[0] + len(sub_input_ids), sp[1] + len(sub_input_ids)) for sp in
+                                        tmp_event_spans]
                     sub_input_ids += tmp_input_ids
                 else:
                     assert len(sub_input_ids) <= self.max_length
@@ -224,20 +230,24 @@ class myDataset(Dataset):
                         tmp_input_ids_part1, tmp_input_ids = tmp_input_ids[:split_point], tmp_input_ids[split_point:]
 
                         input_ids.append([self.tokenizer.cls_token_id] + tmp_input_ids_part1)
-                        event_spans.append([(sp[0]+1, sp[1]+1) for sp in tmp_event_spans_part1])
-                        tmp_event_spans = [(sp[0]-len(tmp_input_ids_part1), sp[1]-len(tmp_input_ids_part1)) for sp in tmp_event_spans]
+                        event_spans.append([(sp[0] + 1, sp[1] + 1) for sp in tmp_event_spans_part1])
+                        tmp_event_spans = [(sp[0] - len(tmp_input_ids_part1), sp[1] - len(tmp_input_ids_part1)) for sp
+                                           in tmp_event_spans]
 
-                    sub_event_spans = [(sp[0]+1, sp[1]+1) for sp in tmp_event_spans]
+                    sub_event_spans = [(sp[0] + 1, sp[1] + 1) for sp in tmp_event_spans]
                     sub_input_ids = [self.tokenizer.cls_token_id] + tmp_input_ids
             if sub_input_ids:
                 input_ids.append(sub_input_ids)
                 event_spans.append(sub_event_spans)
-            
+
             assert event_id == len(spans)
-                
-            tokenized = {"input_ids": input_ids, "attention_mask": None, "event_spans": event_spans, "coref_labels": example.coref_labels, "temporal_labels": example.temporal_labels, "causal_labels": example.causal_labels, "subevent_labels": example.subevent_labels, "events_idx": example.events_idx, "doc_id": example.id}
+
+            tokenized = {"input_ids": input_ids, "attention_mask": None, "event_spans": event_spans,
+                         "coref_labels": example.coref_labels, "temporal_labels": example.temporal_labels,
+                         "causal_labels": example.causal_labels, "subevent_labels": example.subevent_labels,
+                         "events_idx": example.events_idx, "doc_id": example.id}
             self.tokenized_samples.append(tokenized)
-    
+
     def to_tensor(self):
         for item in self.tokenized_samples:
             attention_mask = []
@@ -252,7 +262,7 @@ class myDataset(Dataset):
             item["temporal_labels"] = torch.LongTensor(item["temporal_labels"])
             item["causal_labels"] = torch.LongTensor(item["causal_labels"])
             item["subevent_labels"] = torch.LongTensor(item["subevent_labels"])
-    
+
     def __getitem__(self, index):
         return self.tokenized_samples[index]
 
@@ -261,27 +271,34 @@ class myDataset(Dataset):
 
 
 def collator(data):
-    collate_data = {"input_ids": [], "attention_mask": [], "event_spans": [], "splits": [0], "coref_labels": [], "temporal_labels": [],"causal_labels": [], "subevent_labels": [], "events_idx": [], "doc_id": []}
+    collate_data = {"input_ids": [], "attention_mask": [], "event_spans": [], "splits": [0], "coref_labels": [],
+                    "temporal_labels": [], "causal_labels": [], "subevent_labels": [], "events_idx": [], "doc_id": []}
     for d in data:
         for k in d:
             collate_data[k].append(d[k])
     lengths = [ids.size(0) for ids in collate_data["input_ids"]]
     for l in lengths:
-        collate_data["splits"].append(collate_data["splits"][-1]+l)
+        collate_data["splits"].append(collate_data["splits"][-1] + l)
     collate_data["input_ids"] = torch.cat(collate_data["input_ids"])
     collate_data["attention_mask"] = torch.cat(collate_data["attention_mask"])
     for label_type in ["temporal_labels", "causal_labels", "subevent_labels"]:
         max_label_length = max([len(label) for label in collate_data[label_type]])
-        collate_data[label_type] = torch.stack([F.pad(label, pad=(0, max_label_length-len(label)), value=-100) for label in collate_data[label_type]])
-        collate_data["max_%s_length"%(label_type[:-1])] = max_label_length
+        collate_data[label_type] = torch.stack(
+            [F.pad(label, pad=(0, max_label_length - len(label)), value=-100) for label in collate_data[label_type]])
+        collate_data["max_%s_length" % (label_type[:-1])] = max_label_length
     return collate_data
 
-def get_dataloader(tokenizer, split, data_dir="../data/MAVEN_ERE", max_length=128, batch_size=8, shuffle=True, ignore_nonetype=False, sample_rate=None):
-    dataset = myDataset(tokenizer, data_dir, split, max_length=max_length, ignore_nonetype=ignore_nonetype, sample_rate=sample_rate)
+
+def get_dataloader(tokenizer, split, data_dir="../data/MAVEN_ERE", max_length=128, batch_size=8, shuffle=True,
+                   ignore_nonetype=False, sample_rate=None):
+    dataset = myDataset(tokenizer, data_dir, split, max_length=max_length, ignore_nonetype=ignore_nonetype,
+                        sample_rate=sample_rate)
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collator)
+
 
 if __name__ == "__main__":
     from transformers import RobertaTokenizer
+
     tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
     dataloader = get_dataloader(tokenizer, "test", shuffle=False, max_length=256)
     for data in dataloader:

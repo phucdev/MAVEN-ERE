@@ -6,3 +6,5 @@ scikit-learn
 scipy
 nltk
 pyparsing
+sentencepiece
+protobuf

@@ -5,7 +5,8 @@ import random
 import numpy as np
 from tqdm import tqdm
 from src.data import myDataset, get_dataloader
-from transformers import AdamW, RobertaTokenizer, get_linear_schedule_with_warmup
+from transformers import AdamW, AutoTokenizer, get_linear_schedule_with_warmup, AutoConfig, RobertaConfig, \
+    RobertaTokenizer
 from src.utils import get_predicted_clusters, get_event2cluster, fill_expand
 from src.metrics import evaluate_documents, b_cubed, ceafe, muc, Evaluator, blanc
 from src.dump_result import coref_dump, causal_dump, temporal_dump, subevent_dump
@@ -222,6 +223,8 @@ if __name__ == "__main__":
     parser.add_argument("--ignore_nonetype", action="store_true")
     parser.add_argument("--sample_rate", default=None, type=float,
                         help="randomly sample a portion of the training data")
+    parser.add_argument("--train_on_valid", action="store_true", default=False,
+                        help="Train on train+valid set, and evaluate on test set")
     args = parser.parse_args()
 
     TEMP_REPORT_CLASS_NAMES = [ID2TEMPREL[i] for i in range(0, len(ID2TEMPREL) - 1)]
@@ -232,7 +235,8 @@ if __name__ == "__main__":
     CAUSAL_REPORT_CLASS_LABELS = list(range(1, len(ID2CAUSALREL)))
     SUBEVENT_REPORT_CLASS_LABELS = list(range(1, len(ID2SUBEVENTREL)))
 
-    output_dir = Path(f"./output/{args.seed}/MAVEN-ERE")
+    model_name = args.model_name.split("/")[-1]
+    output_dir = Path(f"./output/{model_name}_{args.seed}/MAVEN-ERE")
     output_dir.mkdir(exist_ok=True, parents=True)
 
     sys.stdout = open(os.path.join(output_dir, "log.txt"), 'w')
@@ -240,11 +244,21 @@ if __name__ == "__main__":
 
     set_seed(args.seed)
 
-    tokenizer = RobertaTokenizer.from_pretrained(args.model_name)
+    config = AutoConfig.from_pretrained(args.model_name)
+    if isinstance(config, RobertaConfig):
+        tokenizer = RobertaTokenizer.from_pretrained(args.model_name, add_prefix_space=True)
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     print("loading data...")
     if not args.eval_only:
-        train_dataloader = get_dataloader(tokenizer, "train", max_length=256, shuffle=True, batch_size=args.batch_size,
-                                          ignore_nonetype=args.ignore_nonetype, sample_rate=args.sample_rate)
+        if args.train_on_valid:
+            train_dataloader = get_dataloader(tokenizer, "train_valid", max_length=256, shuffle=True,
+                                              batch_size=args.batch_size, ignore_nonetype=args.ignore_nonetype,
+                                              sample_rate=args.sample_rate)
+        else:
+            train_dataloader = get_dataloader(tokenizer, "train", max_length=256, shuffle=True,
+                                              batch_size=args.batch_size,
+                                              ignore_nonetype=args.ignore_nonetype, sample_rate=args.sample_rate)
         dev_dataloader = get_dataloader(tokenizer, "valid", max_length=256, shuffle=False, batch_size=args.batch_size,
                                         ignore_nonetype=args.ignore_nonetype)
     test_dataloader = get_dataloader(tokenizer, "test", max_length=256, shuffle=False, batch_size=args.batch_size,
@@ -369,7 +383,7 @@ if __name__ == "__main__":
                     np.mean(subevent_losses)))
                     for metric, name in zip(metrics, metric_names):
                         res = evaluate_documents(coref_train_eval_results, metric)
-                        print("COREFRENCE %s: precision=%.4f, recall=%.4f, f1=%.4f" % (name, *res))
+                        print("COREFERENCE %s: precision=%.4f, recall=%.4f, f1=%.4f" % (name, *res))
                     temporal_res = classification_report(temporal_label_list, temporal_pred_list, output_dict=True,
                                                          target_names=TEMP_REPORT_CLASS_NAMES,
                                                          labels=TEMP_REPORT_CLASS_LABELS)
