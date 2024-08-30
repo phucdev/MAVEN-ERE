@@ -1,24 +1,25 @@
-from src.model import Model
-from src.utils import to_cuda, to_var
-import torch
-import random
-import numpy as np
-from tqdm import tqdm
-from src.data import myDataset, get_dataloader
-from transformers import AdamW, AutoTokenizer, get_linear_schedule_with_warmup, AutoConfig, RobertaConfig, \
-    RobertaTokenizer
-from src.utils import get_predicted_clusters, get_event2cluster, fill_expand
-from src.metrics import evaluate_documents, b_cubed, ceafe, muc, Evaluator, blanc
-from src.dump_result import coref_dump, causal_dump, temporal_dump, subevent_dump
 import argparse
-from torch.optim import Adam
-import torch.nn as nn
-from sklearn.metrics import classification_report
-from src.data import TEMPREL2ID, ID2TEMPREL, CAUSALREL2ID, ID2CAUSALREL, SUBEVENTREL2ID, ID2SUBEVENTREL
 import warnings
 import os
 import sys
+import json
+import torch
+import random
+import numpy as np
+import torch.nn as nn
+
+from tqdm import tqdm
+from transformers import AdamW, AutoTokenizer, get_linear_schedule_with_warmup, AutoConfig, RobertaConfig, \
+    RobertaTokenizer
+from torch.optim import Adam
+from sklearn.metrics import classification_report
 from pathlib import Path
+
+from src.data import TEMPREL2ID, ID2TEMPREL, CAUSALREL2ID, ID2CAUSALREL, SUBEVENTREL2ID, ID2SUBEVENTREL, myDataset, get_dataloader
+from src.model import Model
+from src.utils import to_cuda, to_var, get_predicted_clusters, get_event2cluster, fill_expand
+from src.metrics import evaluate_documents, b_cubed, ceafe, muc, Evaluator, blanc
+from src.dump_result import coref_dump, causal_dump, temporal_dump, subevent_dump
 
 warnings.filterwarnings("ignore")
 
@@ -110,7 +111,7 @@ def causal_predict(model, dataloader):
     all_preds = []
     model.eval()
     with torch.no_grad():
-        for data in tqdm(dataloader, desc="Predict"):
+        for data in tqdm(dataloader, desc="Predict causal relations"):
             for k in data:
                 if isinstance(data[k], torch.Tensor):
                     data[k] = to_cuda(data[k])
@@ -137,7 +138,7 @@ def subevent_predict(model, dataloader):
     all_preds = []
     model.eval()
     with torch.no_grad():
-        for data in tqdm(dataloader, desc="Predict"):
+        for data in tqdm(dataloader, desc="Predict sub-event relations"):
             for k in data:
                 if isinstance(data[k], torch.Tensor):
                     data[k] = to_cuda(data[k])
@@ -150,12 +151,10 @@ def subevent_predict(model, dataloader):
             n_doc = len(labels) // max_label_length
             assert len(labels) % max_label_length == 0
             for i in range(n_doc):
-                selected_index = labels[i * max_label_length:(
-                                                                         i + 1) * max_label_length] >= -1  # -1 means no label, -100 means padding
+                selected_index = labels[i * max_label_length:(i + 1) * max_label_length] >= -1  # -1 means no label, -100 means padding
                 all_preds.append({
                     "doc_id": data["doc_id"][i],
-                    "preds": pred[i * max_label_length:(i + 1) * max_label_length][
-                        selected_index].cpu().numpy().tolist(),
+                    "preds": pred[i * max_label_length:(i + 1) * max_label_length][selected_index].cpu().numpy().tolist(),
                 })
     return all_preds
 
@@ -164,7 +163,7 @@ def coref_predict(model, dataloader):
     model.eval()
     all_preds = []
     with torch.no_grad():
-        for data in tqdm(dataloader, desc="Predict"):
+        for data in tqdm(dataloader, desc="Predict coreference chains"):
             for k in data:
                 if isinstance(data[k], torch.Tensor):
                     data[k] = to_cuda(data[k])
@@ -180,7 +179,7 @@ def temp_predict(model, dataloader):
     all_preds = []
     model.eval()
     with torch.no_grad():
-        for data in tqdm(dataloader, desc="Predict"):
+        for data in tqdm(dataloader, desc="Predict temporal relations"):
             for k in data:
                 if isinstance(data[k], torch.Tensor):
                     data[k] = to_cuda(data[k])
@@ -203,11 +202,10 @@ def temp_predict(model, dataloader):
 
 
 if __name__ == "__main__":
-    import json
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--eval_steps", default=200, type=int)
     parser.add_argument("--model_name", default="roberta-base", type=str, help="Name of the base model for fine-tuning")
+    parser.add_argument("--data_dir", default="../data/MAVEN_ERE", type=str, help="Path to the data directory")
     parser.add_argument("--epochs", default=100, type=int)
     parser.add_argument("--log_steps", default=50, type=int)
     parser.add_argument("--seed", default=42, type=int)
@@ -219,7 +217,9 @@ if __name__ == "__main__":
     parser.add_argument("--temporal_rate", default=2.0, type=float)
     parser.add_argument("--causal_rate", default=4.0, type=float)
     parser.add_argument("--subevent_rate", default=4.0, type=float)
-    parser.add_argument("--eval_only", action="store_true")
+    parser.add_argument("--eval_only", action="store_true", default=False)
+    parser.add_argument("--test_file", default="test", type=str,
+                        help="Name of the test file without .jsonl file suffix (only in conjunction with eval_only=True)")
     parser.add_argument("--ignore_nonetype", action="store_true")
     parser.add_argument("--sample_rate", default=None, type=float,
                         help="randomly sample a portion of the training data")
@@ -254,15 +254,15 @@ if __name__ == "__main__":
         if args.train_on_valid:
             train_dataloader = get_dataloader(tokenizer, "train_valid", max_length=256, shuffle=True,
                                               batch_size=args.batch_size, ignore_nonetype=args.ignore_nonetype,
-                                              sample_rate=args.sample_rate)
+                                              sample_rate=args.sample_rate, data_dir=args.data_dir)
         else:
             train_dataloader = get_dataloader(tokenizer, "train", max_length=256, shuffle=True,
                                               batch_size=args.batch_size,
                                               ignore_nonetype=args.ignore_nonetype, sample_rate=args.sample_rate)
         dev_dataloader = get_dataloader(tokenizer, "valid", max_length=256, shuffle=False, batch_size=args.batch_size,
-                                        ignore_nonetype=args.ignore_nonetype)
-    test_dataloader = get_dataloader(tokenizer, "test", max_length=256, shuffle=False, batch_size=args.batch_size,
-                                     ignore_nonetype=args.ignore_nonetype)
+                                        ignore_nonetype=args.ignore_nonetype, data_dir=args.data_dir)
+    test_dataloader = get_dataloader(tokenizer, args.test_file, max_length=256, shuffle=False, batch_size=args.batch_size,
+                                     ignore_nonetype=args.ignore_nonetype, data_dir=args.data_dir)
 
     print(f"loading {args.model_name} model...")
     model = Model(vocab_size=len(tokenizer), model_name=args.model_name)
@@ -427,6 +427,7 @@ if __name__ == "__main__":
                                      "scheduler": scheduler.state_dict()}
                             torch.save(state, os.path.join(output_dir, "best_%s" % (k)))
 
+    # Evaluation/ Inference
     dump_results = {}
     print("*" * 30 + "Test" + "*" * 30)
     for k in ["COREFERENCE", "TEMPORAL", "CAUSAL", "SUBEVENT"]:
@@ -435,16 +436,16 @@ if __name__ == "__main__":
         model.load_state_dict(state["model"])
         if k == 'COREFERENCE':
             all_preds = coref_predict(model, test_dataloader)
-            coref_dump("../data/MAVEN_ERE/test.jsonl", all_preds, dump_results)
+            coref_dump(os.path.join(args.data_dir, f"{args.test_file}.jsonl"), all_preds, dump_results)
         elif k == 'TEMPORAL':
             all_preds = temp_predict(model, test_dataloader)
-            temporal_dump("../data/MAVEN_ERE/test.jsonl", all_preds, dump_results)
+            temporal_dump(os.path.join(args.data_dir, f"{args.test_file}.jsonl"), all_preds, dump_results)
         elif k == 'CAUSAL':
             all_preds = causal_predict(model, test_dataloader)
-            causal_dump("../data/MAVEN_ERE/test.jsonl", all_preds, dump_results)
+            causal_dump(os.path.join(args.data_dir, f"{args.test_file}.jsonl"), all_preds, dump_results)
         elif k == 'SUBEVENT':
             all_preds = subevent_predict(model, test_dataloader)
-            subevent_dump("../data/MAVEN_ERE/test.jsonl", all_preds, dump_results)
-    with open(os.path.join(output_dir, "test_prediction.jsonl"), "w") as f:
+            subevent_dump(os.path.join(args.data_dir, f"{args.test_file}.jsonl"), all_preds, dump_results)
+    with open(os.path.join(output_dir, f"{args.test_file}_prediction.jsonl"), "w") as f:
         f.writelines("\n".join([json.dumps(dump_results[key]) for key in dump_results]))
     sys.stdout.close()

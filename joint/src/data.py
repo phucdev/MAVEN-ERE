@@ -1,11 +1,12 @@
 import json
-from torch.utils.data import DataLoader, Dataset
 import torch
 import os
-from tqdm import tqdm
-import torch.nn.functional as F
 import random
 import copy
+import torch.nn.functional as F
+
+from tqdm import tqdm
+from torch.utils.data import DataLoader, Dataset
 
 SUBEVENTREL2ID = {
     "NONE": 0,
@@ -83,6 +84,7 @@ class Document:
         else:
             self.events = copy.deepcopy(data['event_mentions'])
 
+        data["TIMEX"] = data.get("TIMEX", [])
         self.events += data["TIMEX"]
         for t in data["TIMEX"]:
             self.eid2mentions[t["id"]] = [t]
@@ -167,12 +169,11 @@ class myDataset(Dataset):
     def load_examples(self, data_dir, split):
         self.examples = []
         with open(os.path.join(data_dir, f"{split}.jsonl")) as f:
-            lines = f.readlines()
-        for line in lines:
-            data = json.loads(line.strip())
-            doc = Document(data, ignore_nonetype=self.ignore_nonetype)
-            if doc.sorted_event_spans:
-                self.examples.append(doc)
+            for line in tqdm(f, desc=f"Loading examples for {data_dir}/{split}.jsonl"):
+                json_dict = json.loads(line.strip())
+                doc = Document(json_dict, ignore_nonetype=self.ignore_nonetype)
+                if doc.sorted_event_spans:
+                    self.examples.append(doc)
 
     def tokenize(self):
         # {input_ids, event_spans, event_group}

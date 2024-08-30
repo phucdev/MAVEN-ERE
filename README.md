@@ -34,7 +34,7 @@ Each `.jsonl` file is a subset of `MAVEN-ERE` and each line in the files is a js
 ```JSON5
 {
   "id": "f28bce270df5a122c09365002d247e76", // an unique string for each document
-  "title": "United States occupation of Nicaragua", // the tiltle of the document
+  "title": "United States occupation of Nicaragua", // the title of the document
   "tokens": [ // a list for tokenized document content. each item is a tokenized sentence
     ["The", "United", "States", "occupation", "of", "Nicaragua", "from", 
     "1912", "to", "1933", "was", "part", "of", "the", "Banana", "Wars", ",", 

@@ -1,7 +1,4 @@
-import os
 import json
-
-from pathlib import Path 
 
 class CorefDocument:
     def __init__(self, data):
@@ -16,7 +13,7 @@ class Document:
         self.words = data["tokens"]
         self.events = data["event_mentions"]
         if temporal:
-            self.events += data['TIMEX']
+            self.events += data.get('TIMEX', [])
         self.sort_events()
         self.get_pairs()
     
@@ -38,16 +35,18 @@ SUBEVENT_REL2ID = {
 
 SUBEVENT_ID2REL = {v:k for k, v in SUBEVENT_REL2ID.items()}
 
+
+def document_iterator(input_path, temporal=False):
+    with open(input_path) as f:
+        for line in f:
+            data = json.loads(line.strip())
+            doc = Document(data, temporal=temporal)
+            if doc.events:
+                yield doc
+
+
 def subevent_dump(input_path, preds, all_results):
-    examples = []
-    with open(os.path.join(input_path))as f:
-        lines = f.readlines()
-    for line in lines:
-        data = json.loads(line.strip())
-        doc = Document(data)
-        if doc.events:
-            examples.append(doc)
-    for example, pred_per_doc in zip(examples, preds):
+    for example, pred_per_doc in zip(document_iterator(input_path), preds):
         assert example.id == pred_per_doc["doc_id"]
         pred_rels = pred_per_doc["preds"]
         assert len(example.all_pairs) == len(pred_rels)
@@ -66,15 +65,7 @@ CAUSAL_REL2ID = {
 CAUSAL_ID2REL = {v:k for k, v in CAUSAL_REL2ID.items()}
 
 def causal_dump(input_path, preds, all_results):
-    examples = []
-    with open(os.path.join(input_path))as f:
-        lines = f.readlines()
-    for line in lines:
-        data = json.loads(line.strip())
-        doc = Document(data)
-        if doc.events:
-            examples.append(doc)
-    for example, pred_per_doc in zip(examples, preds):
+    for example, pred_per_doc in zip(document_iterator(input_path), preds):
         assert example.id == pred_per_doc["doc_id"]
         pred_rels = pred_per_doc["preds"]
         assert len(example.all_pairs) == len(pred_rels)
@@ -86,16 +77,9 @@ def causal_dump(input_path, preds, all_results):
             elif int(pred_rels[i])==1:
                 all_results[example.id]['causal_relations']['PRECONDITION'].append([pair[0], pair[1]])
 
+
 def coref_dump(input_path, preds, all_results):
-    examples = []
-    with open(os.path.join(input_path))as f:
-        lines = f.readlines()
-    for line in lines:
-        data = json.loads(line.strip())
-        doc = Document(data)
-        if doc.events:
-            examples.append(doc)
-    for example, pred_per_doc in zip(examples, preds):
+    for example, pred_per_doc in zip(document_iterator(input_path), preds):
         assert example.id == pred_per_doc["doc_id"]
         clusters = pred_per_doc["clusters"]
         if example.id not in all_results:
@@ -117,15 +101,7 @@ TEMP_REL2ID = {
 TEMP_ID2REL = {v:k for k, v in TEMP_REL2ID.items()}
 
 def temporal_dump(input_path, preds, all_results):
-    examples = []
-    with open(os.path.join(input_path))as f:
-        lines = f.readlines()
-    for line in lines:
-        data = json.loads(line.strip())
-        doc = Document(data, temporal=True)
-        if doc.events:
-            examples.append(doc)
-    for example, pred_per_doc in zip(examples, preds):
+    for example, pred_per_doc in zip(document_iterator(input_path, temporal=True), preds):
         assert example.id == pred_per_doc["doc_id"]
         pred_rels = pred_per_doc["preds"]
         assert len(example.all_pairs) == len(pred_rels)
